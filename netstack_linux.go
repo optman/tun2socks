@@ -69,7 +69,7 @@ func NewNetstack(fd int, mtu uint32, tcpConnHandler func(*net.TCPAddr, func() (n
 		}
 		resetConn := func() { r.Complete(true) }
 
-		go tcpConnHandler(remoteAddr, newConn, resetConn)
+		tcpConnHandler(remoteAddr, newConn, resetConn)
 	})
 
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpFwd.HandlePacket)
