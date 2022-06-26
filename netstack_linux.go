@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -15,7 +16,7 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
-func NewNetstack(fd int, mtu uint32, tcpConnHandler func(*net.TCPAddr, func() (net.Conn, error), func())) error {
+func NewNetstack(fd int, mtu uint32, tcpConnHandler func(*net.TCPAddr, func(kaInterval time.Duration, kaCount int) (net.Conn, error), func())) error {
 
 	linkEP, err := fdbased.New(&fdbased.Options{
 		FDs: []int{fd},
@@ -57,7 +58,7 @@ func NewNetstack(fd int, mtu uint32, tcpConnHandler func(*net.TCPAddr, func() (n
 		id := r.ID()
 		remoteAddr := &net.TCPAddr{IP: net.IP(id.LocalAddress), Port: int(id.LocalPort)}
 
-		newConn := func() (net.Conn, error) {
+		newConn := func(kaInterval time.Duration, kaCount int) (net.Conn, error) {
 			var wq waiter.Queue
 			ep, err := r.CreateEndpoint(&wq)
 			if err != nil {
@@ -65,6 +66,22 @@ func NewNetstack(fd int, mtu uint32, tcpConnHandler func(*net.TCPAddr, func() (n
 				return nil, fmt.Errorf("netstack create endpoint fail %s", err)
 			}
 			r.Complete(false)
+
+			ep.SocketOptions().SetKeepAlive(true)
+			{
+				opt := tcpip.KeepaliveIdleOption(kaInterval)
+				ep.SetSockOpt(&opt)
+			}
+			{
+				opt := tcpip.KeepaliveIntervalOption(kaInterval)
+				ep.SetSockOpt(&opt)
+			}
+			ep.SetSockOptInt(tcpip.KeepaliveCountOption, kaCount)
+			{
+				opt := tcpip.TCPUserTimeoutOption(UserTimeoutFromKeepalive(kaInterval, kaCount))
+				ep.SetSockOpt(&opt)
+			}
+
 			return gonet.NewTCPConn(&wq, ep), nil
 		}
 		resetConn := func() { r.Complete(true) }
